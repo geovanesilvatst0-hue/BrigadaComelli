@@ -1,0 +1,7 @@
+{
+  "name": "FireGuard - Gestão de Extintores",
+  "description": "Sistema avançado para gestão e inspeção de extintores de incêndio com análise inteligente via IA.",
+  "requestFramePermissions": [
+    "camera"
+  ]
+}
