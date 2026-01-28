@@ -1,9 +1,24 @@
 
 import { GoogleGenAI, Type } from "@google/genai";
 
-const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+// Função para obter a API Key de forma segura sem quebrar o runtime
+const getSafeApiKey = () => {
+  try {
+    return (typeof process !== 'undefined' && process.env) ? process.env.API_KEY : '';
+  } catch (e) {
+    return '';
+  }
+};
+
+const ai = new GoogleGenAI({ apiKey: getSafeApiKey() || 'no-key-provided' });
 
 export async function analyzeExtinguisherPhoto(base64Image: string) {
+  const apiKey = getSafeApiKey();
+  if (!apiKey) {
+    console.error("Gemini API Key não configurada.");
+    throw new Error("Configuração de IA indisponível.");
+  }
+
   try {
     const response = await ai.models.generateContent({
       model: 'gemini-3-flash-preview',
@@ -42,14 +57,13 @@ export async function analyzeExtinguisherPhoto(base64Image: string) {
       }
     });
 
-    // Fix: Use response.text property directly and trim whitespace before parsing
     const text = response.text?.trim();
     if (!text) {
-      throw new Error("Resposta da IA está vazia ou indefinida.");
+      throw new Error("Resposta da IA vazia.");
     }
     return JSON.parse(text);
   } catch (error) {
-    console.error("Erro ao analisar imagem com Gemini:", error);
+    console.error("Erro no serviço Gemini:", error);
     throw error;
   }
 }
