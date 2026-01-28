@@ -10,14 +10,14 @@ import TypeManager from './components/TypeManager';
 import Login from './components/Login';
 import SystemSettings from './components/SystemSettings';
 import UserManager from './components/UserManager';
-// Added WifiOff to the imports from lucide-react to resolve the missing name error
-import { Shield, Bell, Settings, Menu, X, Plus, ListChecks, Flame, LogOut, LayoutDashboard, Package, History, ClipboardCheck, Loader2, Cloud, AlertTriangle, CloudOff, Globe, Users, WifiOff } from 'lucide-react';
+import { Shield, Bell, Settings, Menu, X, Plus, ListChecks, Flame, LogOut, LayoutDashboard, Package, History, ClipboardCheck, Loader2, Cloud, AlertTriangle, CloudOff, Globe, Users, WifiOff, RefreshCcw } from 'lucide-react';
 import { supabase } from './lib/supabase';
 
 const App: React.FC = () => {
   const [user, setUser] = useState<User | null>(null);
   const [activeTab, setActiveTab] = useState('dashboard');
   const [loading, setLoading] = useState(true);
+  const [loadingTimeout, setLoadingTimeout] = useState(false);
   const [extinguishers, setExtinguishers] = useState<Extinguisher[]>([]);
   const [inspections, setInspections] = useState<Inspection[]>([]);
   const [availableTypes, setAvailableTypes] = useState<ExtType[]>([]);
@@ -27,43 +27,44 @@ const App: React.FC = () => {
   const [isAddingExtinguisher, setIsAddingExtinguisher] = useState(false);
   const [isSupabaseOnline, setIsSupabaseOnline] = useState(false);
 
-  // Initialize data
   useEffect(() => {
+    // Timer de segurança para não travar na tela branca
+    const timer = setTimeout(() => {
+      if (loading) setLoadingTimeout(true);
+    }, 6000);
+
     const init = async () => {
       try {
         setLoading(true);
         
-        // Verifica se o Supabase está realmente online respondendo
         if (supabase) {
           try {
-            const { error } = await supabase.from('extinguisher_types').select('id').limit(1);
+            // Tenta um ping rápido no banco
+            const { error } = await supabase.from('extinguisher_types').select('id').limit(1).timeout(4000);
             setIsSupabaseOnline(!error);
           } catch (e) {
+            console.warn("Banco offline ou timeout.");
             setIsSupabaseOnline(false);
           }
         }
 
-        // Garante que os dados básicos existam
         await seedInitialData();
         await refreshData();
       } catch (err) {
         console.error("Erro na inicialização:", err);
       } finally {
-        // Pequeno delay para garantir que o estado do Supabase foi processado
-        setTimeout(() => setLoading(false), 500);
+        setLoading(false);
+        clearTimeout(timer);
       }
     };
     init();
+    
+    return () => clearTimeout(timer);
   }, []);
 
-  // Update default tab based on role
   useEffect(() => {
     if (user) {
-      if (user.role === 'brigadista') {
-        setActiveTab('extinguishers');
-      } else {
-        setActiveTab('dashboard');
-      }
+      setActiveTab(user.role === 'brigadista' ? 'extinguishers' : 'dashboard');
     }
   }, [user]);
 
@@ -80,17 +81,12 @@ const App: React.FC = () => {
       setAvailableTypes(types || []);
       setSystemConfig(config || { appName: 'FireGuard' });
     } catch (err) {
-      console.error("Erro ao carregar dados do storage:", err);
+      console.error("Erro ao carregar dados:", err);
     }
   };
 
-  const handleLogin = (loggedInUser: User) => {
-    setUser(loggedInUser);
-  };
-
-  const handleLogout = () => {
-    setUser(null);
-  };
+  const handleLogin = (loggedInUser: User) => setUser(loggedInUser);
+  const handleLogout = () => setUser(null);
 
   const handleInspect = (ext: Extinguisher) => {
     setSelectedExtinguisher(ext);
@@ -126,18 +122,28 @@ const App: React.FC = () => {
     setLoading(false);
   };
 
-  const handleUpdateSystem = async (config: SystemConfig) => {
-    setSystemConfig(config);
-    await refreshData();
-  };
-
   if (loading && !user) {
     return (
       <div className="min-h-screen bg-slate-900 flex flex-col items-center justify-center p-6 text-center">
-        <div className="space-y-4">
+        <div className="space-y-6 max-w-sm">
           <Loader2 className="w-12 h-12 text-red-500 animate-spin mx-auto" />
-          <p className="text-white font-medium">Sincronizando ambiente...</p>
-          <p className="text-slate-500 text-xs max-w-xs">Estabelecendo conexão com o seu banco de dados Supabase.</p>
+          <div className="space-y-2">
+            <h2 className="text-white font-bold text-lg">Iniciando FireGuard</h2>
+            <p className="text-slate-400 text-sm">Sincronizando com o banco de dados...</p>
+          </div>
+          
+          {loadingTimeout && (
+            <div className="bg-amber-900/20 border border-amber-500/30 p-4 rounded-xl animate-in fade-in slide-in-from-bottom-2">
+              <p className="text-amber-200 text-xs mb-4">A conexão está demorando mais que o esperado. Isso pode ser devido a uma chave inválida ou falta de internet.</p>
+              <button 
+                onClick={() => setLoading(false)}
+                className="w-full bg-amber-600 text-white py-2 rounded-lg font-bold text-sm hover:bg-amber-500 flex items-center justify-center gap-2"
+              >
+                <WifiOff size={16} />
+                Entrar em Modo Local
+              </button>
+            </div>
+          )}
         </div>
       </div>
     );
@@ -170,9 +176,7 @@ const App: React.FC = () => {
             extinguishers={extinguishers} 
             onInspect={handleInspect} 
             onAdd={() => {
-              if (user.role === 'admin') {
-                setIsAddingExtinguisher(true);
-              }
+              if (user.role === 'admin') setIsAddingExtinguisher(true);
             }}
           />
         );
@@ -183,11 +187,11 @@ const App: React.FC = () => {
       case 'types':
         return user.role === 'admin' ? <TypeManager /> : null;
       case 'system':
-        return user.role === 'admin' ? <SystemSettings onUpdate={handleUpdateSystem} /> : null;
+        return user.role === 'admin' ? <SystemSettings onUpdate={setSystemConfig} /> : null;
       case 'history':
         return (
-          <div className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden">
-             <table className="w-full text-left border-collapse">
+          <div className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-x-auto">
+             <table className="w-full text-left border-collapse min-w-[600px]">
                 <thead>
                   <tr className="bg-slate-50 text-slate-500 text-xs font-bold uppercase tracking-wider">
                     <th className="px-6 py-4">Data</th>
@@ -224,7 +228,7 @@ const App: React.FC = () => {
           </div>
         );
       default:
-        return <div>Em breve...</div>;
+        return null;
     }
   };
 
@@ -389,8 +393,7 @@ const App: React.FC = () => {
               </div>
               <div className="pt-4 flex gap-3">
                 <button type="button" onClick={() => setIsAddingExtinguisher(false)} className="flex-1 py-3 font-bold text-slate-500 border border-slate-200 rounded-xl hover:bg-slate-50">Cancelar</button>
-                <button type="submit" disabled={loading} className="flex-1 py-3 font-bold text-white bg-red-600 rounded-xl hover:bg-red-700 shadow-lg shadow-red-100 flex items-center justify-center gap-2">
-                  {loading && <Loader2 size={16} className="animate-spin" />}
+                <button type="submit" className="flex-1 py-3 font-bold text-white bg-red-600 rounded-xl hover:bg-red-700 shadow-lg shadow-red-100 flex items-center justify-center gap-2">
                   Salvar Registro
                 </button>
               </div>
